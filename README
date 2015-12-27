@@ -1,5 +1,7 @@
 
-Reference: https://openresty.org/
+Reference:
+ - https://openresty.org/
+ - https://github.com/meteor/meteor/blob/devel/packages/ddp/DDP.md
 
 Install openssl
 Install openresty
