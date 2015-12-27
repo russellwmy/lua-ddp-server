@@ -1,0 +1,19 @@
+worker_processes  1;   # we could enlarge this setting on a multi-core machine
+error_log  logs/error.log warn;
+
+events {
+    worker_connections  1024;
+}
+
+http {
+    lua_package_path 'path/to/lua-resty-websocket/?.lua;;';
+
+    server {
+		listen       3000;
+        server_name  localhost;
+        location / {
+            default_type text/html;
+            content_by_lua_file '/path/to/src/ddp.lua';
+        }
+    }
+}

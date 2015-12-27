@@ -1,0 +1,8 @@
+
+Reference: https://openresty.org/
+
+Install openssl
+Install openresty
+Install lua-resty-websocket
+Install luarocks with openresty
+
