@@ -206,7 +206,7 @@ function handle_request (raw_request_data)
             handle_sub (
                 request.id,
                 request.name,
-                request.params,
+                request.params
             )
         elseif request.msg == 'unsub' then
             handle_unsub(
