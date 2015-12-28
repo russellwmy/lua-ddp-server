@@ -9,3 +9,6 @@ Install luarocks with openresty
 Install cjson with openresty luarocks
 
 Download lua-resty-websocket and pust in the lib folder
+
+PATH=/usr/local/openresty/nginx/sbin:$PATH
+export PATH

@@ -1,23 +1,7 @@
 local cjson = require "cjson"
-local server = require "resty.websocket.server"
 
-local VERSION = 1
+local VERSION = '1'
 local SUPPORT_VERISONS = {'pre1', 'pre2'}
-
-
--- init websocket
-local wb, err = server:new{
-    timeout = 5000,  -- in milliseconds
-    max_payload_len = 65535,
-}
-
-if not wb then
-    ngx.log(ngx.ERR, "failed to new websocket: ", err)
-    return ngx.exit(444)
-end
-
--- set timeout
-wb:set_timeout(5000)
 
 -- uuid 
 local random = math.random
@@ -29,75 +13,215 @@ local function uuid()
     end)
 end
 
+
+
 -- generate session id
 local session = uuid()
 
+-- init socket
+local socket = nil
+
+-- init metods
+local methods = {}
+
+
+function init(s, m)
+    socket = s
+    methods = m
+end
+
+
 -- encode data to json string and send out
 function send(data)
-    wb:send_text (cjson.encode(data))
+    socket:send_text (cjson.encode(data))
+end
+
+-- on ready
+function send_ready (subs)
+    send({ 
+        msg ='ready',
+        subs = subs
+    })
+end
+
+-- on result
+function send_result (id, result)
+    send({ 
+        msg ='result',
+        id = id,
+        result = result
+    })
+    send({ 
+        msg ='updated',
+        id = id
+    })
 end
 
 -- on connect
-function on_connect (request)
-    local resp = {}
-    if request.version ~= VERSION then
-        resp = {
+function handle_connect (version)
+    if version ~= VERSION then
+        send({
             msg = 'failed',
             version = VERSION
-        }
+        })
+       
     else
-        resp = {
+        send({
             msg ='connected',
             session = session
-        }
+        })
+        send({
+            server_id = 0
+        })
     end
-    send(resp)
-end
-
--- on sub
-function on_sub (request)
-    local resp = { 
-        msg ='pong',
-    }
-    send(resp)
-end
-
--- on unsub
-function on_unsub (request)
-    local resp = { 
-        msg ='pong',
-    }
-    send(resp)
 end
 
 -- on ping
-function on_ping (request)
-    local resp = { 
+function handle_ping ()
+    send({ 
         msg ='pong',
-    }
-    send(resp)
+    })
 end
+
+-- on sub
+function handle_sub (id, name, params)
+ -- TODO
+end
+
+-- on unsub
+function handle_unsub (id)
+    -- TODO
+end
+
+-- on unsub
+function send_nosub (id, error)
+    local msg = { 
+        msg ='nosub',
+        id = id,
+    }
+    if error then
+        msg['error'] = error
+    end
+    send(msg)
+end
+
+
+-- on added
+function send_added (collection, id, fields)
+    local msg = { 
+        msg ='added',
+        id = id,
+        collection = collection
+    }
+    if fields then
+        msg['fields'] = fields
+    end
+    send(msg)
+end
+
+-- on changed
+function send_changed (collection, id, fields, cleared)
+    local msg = { 
+        msg ='added',
+        id = id,
+        collection = collection
+    }
+    if fields then
+        msg['fields'] = fields
+    end
+    if cleared then
+        msg['cleared'] = cleared
+    end
+    send(msg)
+end
+
+-- on removed
+function send_removed (id, collection)
+    send({ 
+        msg ='removed',
+        id = id,
+        collection = collection
+    })
+end
+
+-- on added
+function send_added_before(collection, id, fields, before)
+    local msg = { 
+        msg ='addedBefore',
+        id = id,
+        collection = collection,
+        before = before
+    }
+    if fields then
+        msg['fields'] = fields
+    end
+    send(msg)
+end
+
+-- on changed
+function send_moved_before (collection, id, before)
+    local msg = { 
+        msg ='movedBefore',
+        id = id,
+        collection = collection,
+        before = before
+    }
+    send(msg)
+end
+
+
+-- on method
+function handle_method(id, method, params, randomSeed)
+    local result = methods[method](params)
+    send_result(id, result)
+end
+
 
 -- handle client request
-function handle_request (request)
-    if request.msg == 'connect' then
-        on_connect (request)
-    elseif request.msg == 'sub' then
-        on_sub(request)
-    elseif request.msg == 'unsub' then
-        on_unsub(request)
-    elseif request.msg == 'ping' then
-        on_ping(request)
+function handle_request (raw_request_data)
+    request_type = raw_request_data:sub(1, 1)
+    if request_type ~= '[' then
+         raw_request_data = raw_request_data:sub(2, -1)
+    else
+        request_type = ''
+    end
+
+    if request_type ~= 'o' then
+        request_data = cjson.decode(raw_request_data)
+        request = cjson.decode(request_data[1])
+        request.type = request_type
+        
+        if request.msg == 'connect' then
+            handle_connect (request.version)
+        elseif request.msg == 'ping' then
+            handle_ping()
+        elseif request.msg == 'method' then
+            handle_method (
+                request.id,
+                request.method,
+                request.params,
+                request.randomSeed
+            )
+        elseif request.msg == 'sub' then
+            handle_sub (
+                request.id,
+                request.name,
+                request.params,
+            )
+        elseif request.msg == 'unsub' then
+            handle_unsub(
+                request.id
+            )
+        end
     end
 end
 
--- loop and watching request
-while true do
-    local raw_data, typ, err = wb:recv_frame()
-    if not raw_data then
-        ngx.log(ngx.ERR, "failed to receive a frame: ", err)
-        return ngx.exit(444)
-    end
-    request = cjson.decode(raw_data)
-    handle_request(request)
-end
+-- return moudule
+local ddp = {
+    handle_request = handle_request,
+    init = init
+}
+
+-- ddp.on = event_listener:on
+
+return ddp
